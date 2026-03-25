@@ -287,8 +287,7 @@ void T0_int(void) interrupt 1
 //   - 读出乐谱表 music[music_index]；
 //   - 0xFF 视为乐曲结束，重头循环；
 //   - m==0 表示休止，关闭定时器0；
-//   - 否则根据音符号从 T 表中装载定时初值并启动 TR0；
-//   - 计算该音符对应的持续时间 music_ms_left。
+
 void music_load_next_note(void)
 {
     m = music[music_index][0];
@@ -317,7 +316,7 @@ void music_load_next_note(void)
     music_index++;
 }
 
-// 开始播放音乐（初始化状态机）
+// 开始播放音乐
 void music_start(void)
 {
     music_index = 0;
