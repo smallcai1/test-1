@@ -1,0 +1,426 @@
+C51 COMPILER V9.54   GAME                                                                  03/25/2026 13:22:42 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE GAME
+OBJECT MODULE PLACED IN .\Objects\game.obj
+COMPILER INVOKED BY: D:\keil\C51\BIN\C51.EXE game.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\game.ls
+                    -t) TABS(2) OBJECT(.\Objects\game.obj)
+
+line level    source
+
+   1          //代码思路：在蜂鸣器播放《起风了》的基础上随机生成数组并滚动显示各种按键组合提示图案，玩家须在图案滚动到最
+             -低行时，按下对应的一个
+   2          //或两个按键(p3.0-p3.3).程序在每一轮根据按键状态进行判定：若与当前的图案要求一致，积分变量加一分
+   3          //并继续游戏；若错误或未按，则游戏结束。结束后单片机通过多位数码管显示难度等级和最总得分，实现音乐播放
+   4          //随机图案形成，按键交互等功能为一体的小游戏；
+   5          
+   6          #include "reg52.h"
+   7          #include "intrins.h"//nop等内部函数
+   8          #include "stdlib.h"
+   9          
+  10          typedef unsigned char u8;
+  11          typedef unsigned int u16;
+  12          
+  13          #define DZLED_SMG_PORT P0 // 段选：数码管
+  14          
+  15          sbit BUZZER = P2^5;  //蜂鸣器控制端
+  16          sbit LSA = P2^2;
+  17          sbit LSB = P2^3;
+  18          sbit LSC = P2^4;
+  19          
+  20          sbit BUTTER2 = P3^0;  //四个按键：难度选择 + 游戏输入
+  21          sbit BUTTER1 = P3^1;
+  22          sbit BUTTER3 = P3^2;
+  23          sbit BUTTER4 = P3^3;
+  24          
+  25          sbit SRCLK = P3^6;
+  26          sbit rCLK  = P3^5;
+  27          sbit SER   = P3^4;
+  28          
+  29          //音乐播放参数
+  30          u8 m, n;
+  31          u16 music_index = 0;
+  32          u16 music_ms_left = 0;
+  33          u8 music_started = 0;
+  34          
+  35          
+  36          #define MUSIC_UNIT_MS 70
+  37          u8 code T[49][2] = {
+  38              {0,0},
+  39              {0xF8,0x8B},{0xF8,0xF2},{0xF9,0x5B},{0xF9,0xB7},{0xFA,0x14},{0xFA,0x66},{0xFA,0xB9},{0xFB,0x03},{0xFB,
+             -0x4A},{0xFB,0x8F},{0xFB,0xCF},{0xFC,0x0B},
+  40              {0xFC,0x43},{0xFC,0x78},{0xFC,0xAB},{0xFC,0xDB},{0xFD,0x08},{0xFD,0x33},{0xFD,0x5B},{0xFD,0x81},{0xFD,
+             -0xA5},{0xFD,0xC7},{0xFD,0xE7},{0xFE,0x05},
+  41              {0xFE,0x21},{0xFE,0x3C},{0xFE,0x55},{0xFE,0x6D},{0xFE,0x84},{0xFE,0x99},{0xFE,0xAD},{0xFE,0xC0},{0xFE,
+             -0x02},{0xFE,0xE3},{0xFE,0xF3},{0xFF,0x02},
+  42              {0xFF,0x10},{0xFF,0x1D},{0xFF,0x2A},{0xFF,0x36},{0xFF,0x42},{0xFF,0x4C},{0xFF,0x56},{0xFF,0x60},{0xFF,
+             -0x69},{0xFF,0x71},{0xFF,0x79},{0xFF,0x81}
+  43          };
+  44          
+  45          u8 code music[][2] = {
+  46              {0,4},
+  47              {18,2},{19,2},{21,2},{23,2},{11,4},{26,2},{23,6},{0,2},{18,2},{19,2},{21,2},{23,2},{9,4},{26,2},{23,2}
+             -,{21,2},{23,2},{19,2},{21,2},{18,2},{19,2},
+  48              {14,2},{0,4},{18,2},{19,2},{21,2},{23,2},{11,4},{26,2},{23,6},{0,2},{18,2},{19,2},{21,2},{23,2},{9,4},
+C51 COMPILER V9.54   GAME                                                                  03/25/2026 13:22:42 PAGE 2   
+
+             -{26,2},{23,2},{21,2},{23,2},{19,2},{21,2},
+  49              {18,2},{19,2},{14,2},{0,4},{9,6},{7,2},{9,6},{7,2},{9,4},{11,4},{14,4},{11,4},{9,6},{7,2},{9,6},{7,2},
+             -{9,2},{11,2},{9,2},{7,2},{1,4},{0,4},{9,6},
+  50              {7,2},{9,6},{7,2},{9,4},{11,4},{14,4},{11,4},{9,6},{11,2},{9,4},{7,4},{9,8},{0,8},{9,6},{7,2},{9,6},{7
+             -,2},{9,4},{11,4},{14,4},{11,4},{9,6},{11,2},
+  51              {9,4},{7,4},{3,4},{0,4},{11,2},{9,2},{7,2},{9,2},{7,4},{0,4},{11,2},{9,2},{7,2},{9,2},{7,4},{0,4},{11,
+             -2},{9,2},{7,2},{9,2},{7,8},{0,8},{0,4},{7,4},
+  52              {9,4},{11,4},{7,4},{16,4},{14,2},{16,6},{0,2},{7,2},{18,4},{16,2},{18,6},{0,4},{18,4},{16,2},{18,6},{1
+             -1,4},{19,2},{21,2},{19,2},{18,2},{16,4},{14,4},
+  53              {16,4},{14,2},{16,4},{14,2},{16,2},{14,2},{16,4},{14,2},{9,4},{14,4},{11,8},{0,8},{7,4},{9,4},{11,4},{
+             -7,4},{16,4},{14,2},{16,6},{0,2},{7,2},{18,4},
+  54              {16,2},{18,6},{0,4},{18,4},{16,2},{18,6},{11,4},{19,2},{21,2},{19,2},{18,2},{16,4},{14,4},{16,4},{23,2
+             -},{23,6},{14,4},{16,4},{23,2},{23,4},{14,4},
+  55              {16,2},{16,12},{0,4},{19,4},{21,4},{23,4},{28,2},{26,6},{28,2},{26,6},{28,2},{26,6},{21,4},{23,6},{28,
+             -2},{26,6},{28,2},{26,6},{28,2},{26,4},{23,8},
+  56              {21,4},{19,2},{16,4},{19,4},{19,2},{21,4},{19,2},{16,4},{19,4},{23,8},{23,4},{21,6},{0,4},{19,4},{21,4
+             -},{23,4},{28,2},{26,6},{28,2},{26,6},{28,2},
+  57              {26,6},{0,2},{21,2},{23,4},{28,2},{26,6},{28,2},{26,6},{28,2},{26,6},{23,6},{21,4},{19,2},{16,4},{23,4
+             -},{21,4},{19,2},{16,4},{16,2},{19,2},{19,8},
+  58              {0,4},{16,2},{23,6},{21,4},{19,2},{16,4},{23,4},{21,4},{19,2},{16,4},{16,2},{19,6},{19,8},{0xFF,0xFF}
+  59          };
+  60          
+  61          //游戏参数
+  62          int seed, my_code, r, sGSMG;  //随机种子，得分，随机索引，数码管位数
+  63          char flag, mod, key = 0;
+  64          
+  65          // 扫描控制字
+  66          char ghc595[8] = {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01};
+  67          // 随机图案编码
+  68          char random_arrange[10] = {0x7f,0xdf,0xf7,0xfd,0x5f,0x77,0x7d,0xd7,0xdd,0xf5};
+  69          // 数码管段码
+  70          char gsmg_code[10] = {0x3f,0x06,0x5b,0x4f,0x66,0x6d,0x7d,0x07,0x7f,0x6f};
+  71          // 点阵当前八行图案
+  72          char new_arrange[8] = {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
+  73          // 数码管显示缓存
+  74          char new_gsmg_code[8] = {0xff,0x40,0xff,0xff,0xff,0xff,0xff,0xff};
+  75          
+  76          void music_tick_1ms(void);
+  77          
+  78          void Delay10us(void)
+  79          {
+  80   1          unsigned char data i;
+  81   1          i = 2;
+  82   1          while(--i);
+  83   1      }
+  84          
+  85          void Delay500us(void)
+  86          {
+  87   1          unsigned char data i;
+  88   1          _nop_();
+  89   1          i = 227;
+  90   1          while(--i);
+  91   1      }
+  92          
+  93          void Delayms(int n)
+  94          {
+  95   1          unsigned char data i, j;
+  96   1          int k;
+  97   1          for(k=0; k<n; k++) {
+  98   2              _nop_();
+  99   2              i = 2;
+ 100   2              j = 199;
+C51 COMPILER V9.54   GAME                                                                  03/25/2026 13:22:42 PAGE 3   
+
+ 101   2              do {
+ 102   3                  while(--j); // 约1ms的延时
+ 103   3              } while(--i);
+ 104   2              music_tick_1ms(); // 每一毫秒推进一次音乐节拍
+ 105   2          }
+ 106   1      }
+ 107          
+ 108          void hc595(char dat)
+ 109          {
+ 110   1          char i;
+ 111   1          for(i=0; i<8; i++) {
+ 112   2              SER = dat >> 7;
+ 113   2              dat <<= 1;
+ 114   2              SRCLK = 0;
+ 115   2              Delay10us();
+ 116   2              SRCLK = 1;
+ 117   2              Delay10us();
+ 118   2          }
+ 119   1          rCLK = 0;
+ 120   1          Delay10us();
+ 121   1          rCLK = 1;
+ 122   1      }
+ 123          
+ 124          void GSMG(int number)
+ 125          {
+ 126   1          switch(number) {
+ 127   2          case 0: LSA=1; LSB=1; LSC=1; break;
+ 128   2          case 1: LSA=0; LSB=1; LSC=1; break;
+ 129   2          case 2: LSA=1; LSB=0; LSC=1; break;
+ 130   2          case 3: LSA=0; LSB=0; LSC=1; break;
+ 131   2          case 4: LSA=1; LSB=1; LSC=0; break;
+ 132   2          case 5: LSA=0; LSB=1; LSC=0; break;
+ 133   2          case 6: LSA=1; LSB=0; LSC=0; break;
+ 134   2          case 7: LSA=0; LSB=0; LSC=0; break;
+ 135   2          }
+ 136   1      }
+ 137          
+ 138          
+ 139          // 选择难度模式并随机获得种子；
+ 140          // 在等待按键过程中自增seed ，用作srand的种子
+ 141          void get_seed_mod(void)
+ 142          {
+ 143   1          seed = 1;
+ 144   1          while(1) {
+ 145   2              seed += 1;
+ 146   2              if(BUTTER1==0 || BUTTER2==0 || BUTTER3==0 || BUTTER4==0) {
+ 147   3                  Delay10us();
+ 148   3                  if(BUTTER1==0) {
+ 149   4                      mod = 1;
+ 150   4                      new_gsmg_code[0] = 0x06;
+ 151   4                      break;
+ 152   4                  }
+ 153   3                  if(BUTTER2==0) {
+ 154   4                      mod = 2;
+ 155   4                      new_gsmg_code[0] = 0x5b;
+ 156   4                      break;
+ 157   4                  }
+ 158   3                  if(BUTTER3==0) {
+ 159   4                      mod = 3;
+ 160   4                      new_gsmg_code[0] = 0x4f;
+ 161   4                      break;
+ 162   4                  }
+C51 COMPILER V9.54   GAME                                                                  03/25/2026 13:22:42 PAGE 4   
+
+ 163   3                  if(BUTTER4==0) {
+ 164   4                      mod = 4;
+ 165   4                      new_gsmg_code[0] = 0x66;
+ 166   4                      break;
+ 167   4                  }
+ 168   3              }
+ 169   2          }
+ 170   1      }
+ 171          
+ 172          // 刷新点阵：
+ 173          // 1 所有行整体下移一行
+ 174          // 2 key 在0 - 1 间交替
+ 175          // key == 0 : 在顶行生成新的随机图案；
+ 176          // key == 1 : 在顶行填充空行 0xff 实现图案间空隙效果
+ 177          
+ 178          void reflash(void)
+ 179          {
+ 180   1          char k;
+ 181   1          for(k=6; k>=0; k--) {
+ 182   2              new_arrange[k+1] = new_arrange[k];
+ 183   2          }
+ 184   1      
+ 185   1          if(key == 0) {
+ 186   2              key = 1;
+ 187   2              r = rand() % 10;
+ 188   2              new_arrange[0] = random_arrange[r];
+ 189   2          } else {
+ 190   2              key = 0;
+ 191   2              new_arrange[0] = 0xff;
+ 192   2          }
+ 193   1      }
+ 194          // 根据最底行图案 new_arrange[7]判断是否正确
+ 195          // 按对：flag = 1 ，my_code++ ;按错或无按键：flag = 0；
+ 196          void check(void)
+ 197          {
+ 198   1          flag = 0;
+ 199   1          switch(new_arrange[7]) {
+ 200   2          case 0x7f: if(BUTTER1==0) {flag=1; my_code+=1;} break;
+ 201   2          case 0xdf: if(BUTTER2==0) {flag=1; my_code+=1;} break;
+ 202   2          case 0xf7: if(BUTTER3==0) {flag=1; my_code+=1;} break;
+ 203   2          case 0xfd: if(BUTTER4==0) {flag=1; my_code+=1;} break;
+ 204   2          case 0x5f: if(BUTTER1==0 && BUTTER2==0) {flag=1; my_code+=1;} break;
+ 205   2          case 0x77: if(BUTTER1==0 && BUTTER3==0) {flag=1; my_code+=1;} break;
+ 206   2          case 0x7d: if(BUTTER1==0 && BUTTER4==0) {flag=1; my_code+=1;} break;
+ 207   2          case 0xd7: if(BUTTER2==0 && BUTTER3==0) {flag=1; my_code+=1;} break;
+ 208   2          case 0xdd: if(BUTTER2==0 && BUTTER4==0) {flag=1; my_code+=1;} break;
+ 209   2          case 0xf5: if(BUTTER3==0 && BUTTER4==0) {flag=1; my_code+=1;} break;
+ 210   2          default: flag=1; break;
+ 211   2          }
+ 212   1      }
+ 213          
+ 214          void note_code(int score)
+ 215          {
+ 216   1          int g, b, s, m2;
+ 217   1          m2 = score / 10;
+ 218   1          if(m2 == 0) {
+ 219   2              sGSMG = 3;
+ 220   2              g = score % 10;
+ 221   2              new_gsmg_code[2] = gsmg_code[g];
+ 222   2          } else if(m2 >= 10) {
+ 223   2              sGSMG = 5;
+ 224   2              g = score % 10;
+C51 COMPILER V9.54   GAME                                                                  03/25/2026 13:22:42 PAGE 5   
+
+ 225   2              s = (score / 10) % 10;
+ 226   2              b = score / 100;
+ 227   2              new_gsmg_code[2] = gsmg_code[b];
+ 228   2              new_gsmg_code[3] = gsmg_code[s];
+ 229   2              new_gsmg_code[4] = gsmg_code[g];
+ 230   2          } else {
+ 231   2              sGSMG = 4;
+ 232   2              g = score % 10;
+ 233   2              s = (score / 10) % 10;
+ 234   2              new_gsmg_code[2] = gsmg_code[s];
+ 235   2              new_gsmg_code[3] = gsmg_code[g];
+ 236   2          }
+ 237   1      }
+ 238          // 简单鸣叫，用于每轮结束后提示一次
+ 239          void BUZZERRING(void)
+ 240          {
+ 241   1          int t = 50;
+ 242   1          while(t--) {
+ 243   2              BUZZER = !BUZZER;
+ 244   2              Delay500us();
+ 245   2          }
+ 246   1      }
+ 247          // 定时器0的初始化: 打开中断但不启动计数
+ 248          void music_timer0_init(void)
+ 249          {
+ 250   1          TMOD &= 0xF0;
+ 251   1          TMOD |= 0x01;
+ 252   1          TH0 = 0x00;
+ 253   1          TL0 = 0x00;
+ 254   1          ET0 = 1;
+ 255   1          EA = 1;
+ 256   1          TR0 = 0;
+ 257   1      }
+ 258          // 定时器的暂停
+ 259          void T0_int(void) interrupt 1
+ 260          {
+ 261   1          BUZZER = !BUZZER;
+ 262   1          TH0 = T[m][0];
+ 263   1          TL0 = T[m][1];
+ 264   1      }
+ 265          
+ 266          // 装载下一音符
+ 267          void music_load_next_note(void)
+ 268          {
+ 269   1          m = music[music_index][0];
+ 270   1          n = music[music_index][1];
+ 271   1      
+ 272   1          if(m == 0xFF) {
+ 273   2              music_index = 0;
+ 274   2              m = music[music_index][0];
+ 275   2              n = music[music_index][1];
+ 276   2          }
+ 277   1      
+ 278   1          if(m == 0x00) {
+ 279   2              TR0 = 0;
+ 280   2              BUZZER = 0;
+ 281   2          } else {
+ 282   2              TH0 = T[m][0];
+ 283   2              TL0 = T[m][1];
+ 284   2              TR0 = 1;
+ 285   2          }
+ 286   1      
+C51 COMPILER V9.54   GAME                                                                  03/25/2026 13:22:42 PAGE 6   
+
+ 287   1          music_ms_left = (u16)n * MUSIC_UNIT_MS;
+ 288   1          if(music_ms_left == 0) {
+ 289   2              music_ms_left = MUSIC_UNIT_MS;
+ 290   2          }
+ 291   1      
+ 292   1          music_index++;
+ 293   1      }
+ 294          // 开始播放音乐
+ 295          void music_start(void)
+ 296          {
+ 297   1          music_index = 0;
+ 298   1          music_ms_left = 0;
+ 299   1          music_started = 1;
+ 300   1          music_load_next_note();
+ 301   1      }
+ 302          
+ 303          // 每1ms调用一次，递减当前音符剩余时间
+ 304          void music_tick_1ms(void)
+ 305          {
+ 306   1          if(music_started == 0) {
+ 307   2              return;
+ 308   2          }
+ 309   1      
+ 310   1          if(music_ms_left > 0) {
+ 311   2              music_ms_left--;
+ 312   2          }
+ 313   1      
+ 314   1          if(music_ms_left == 0) {
+ 315   2              music_load_next_note();
+ 316   2          }
+ 317   1      }
+ 318          
+ 319          void run_game(void)
+ 320          {
+ 321   1          int j, t, time;
+ 322   1          my_code = 0;
+ 323   1      
+ 324   1          get_seed_mod();
+ 325   1          srand(seed);
+ 326   1      
+ 327   1          switch(mod) {
+ 328   2          case 1: time = 50; break;
+ 329   2          case 2: time = 30; break;
+ 330   2          case 3: time = 20; break;
+ 331   2          case 4: time = 10; break;
+ 332   2          default: time = 30; break;
+ 333   2          }
+ 334   1      
+ 335   1          while(1) {
+ 336   2              t = time;
+ 337   2              reflash();
+ 338   2      
+ 339   2              while(t--) {
+ 340   3                  for(j=0; j<8; j++) {
+ 341   4                      hc595(ghc595[j]);
+ 342   4                      DZLED_SMG_PORT = new_arrange[j];
+ 343   4                      Delayms(1);
+ 344   4                  }
+ 345   3              }
+ 346   2      
+ 347   2              check();
+ 348   2              BUZZERRING();
+C51 COMPILER V9.54   GAME                                                                  03/25/2026 13:22:42 PAGE 7   
+
+ 349   2              if(flag == 0) {
+ 350   3                  break;
+ 351   3              }
+ 352   2          }
+ 353   1      
+ 354   1          note_code(my_code);
+ 355   1          while(1) {
+ 356   2              for(j=0; j<sGSMG; j++) {
+ 357   3                  GSMG(j);
+ 358   3                  DZLED_SMG_PORT = new_gsmg_code[j];
+ 359   3                  Delayms(1);
+ 360   3              }
+ 361   2          }
+ 362   1      }
+ 363          //主函数 ： 
+ 364          // 初始化蜂鸣器和定时器0；
+ 365          // 启动游戏音乐
+ 366          // 进入游戏流程，音乐与游戏一起运行
+ 367          void main(void)
+ 368          {
+ 369   1          BUZZER = 0;
+ 370   1          music_timer0_init();
+ 371   1          music_start();
+ 372   1      
+ 373   1          run_game();
+ 374   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1249    ----
+   CONSTANT SIZE    =    608    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     62      14
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
